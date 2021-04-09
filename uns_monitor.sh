@@ -43,23 +43,26 @@ TOKEN=9999999999:AAAAAAAAAAAAAAAAAAk (replace with your Telegram BOT TOKEN)
 CHAT_ID=9999999999  (replace with your Telegram Chat ID)
 TELEGRAM_URL="https://api.telegram.org/bot$TOKEN/sendMessage"
 
-#ALARM SETTINGS 
+#ALARM SETTINGS
 SEND_ALERT_FLAG=true
 SEND_ALERT_FLAG_SW=true
 SEND_ALERT_FLAG_CPU=true
 SEND_ALERT_FLAG_HDD=true
+SEND_ALERT_FLAG_BLOCKS=true
 
 #ALARM TRESHOLD VALUES   ( You can modify these values according to your needs. )
-CPU_LOAD_CRITICAL=40.00 
-LATENCY_CRITICAL=500 
+CPU_LOAD_CRITICAL=40.00
+LATENCY_CRITICAL=500
 ALIVE=`date +%M`
 HDD_USE_CRITICAL=90
+MAX_BLOCKS_BEHIND=15
 
 #TMP FILES
 FILE=/tmp/tmp_check_UNS_NODE
 FILE_CPU=/tmp/tmp_check_UNS_NODE_CPU
 FILE_SW=/tmp/tmp_check_UNS_NODE_SW
 FILE_HDD=/tmp/tmp_check_UNS_HDD
+FILE_BLOCKS=/tmp/tmp_check_UNS_BLOCKS
 
 # End of Custom variables
 #
@@ -164,6 +167,31 @@ function check_alert_count_sw
         esac
 }
 
+#Check alert count blocks
+function check_alert_count_blocks
+{
+        if [ ! -f "$FILE_BLOCKS" ]; then
+            echo "1" > $FILE_BLOCKS
+            COUNTER_BLOCKS=$(cat $FILE_BLOCKS)
+        else
+            echo $(( $(cat $FILE_BLOCKS) + 1 ))> $FILE_BLOCKS
+            COUNTER_BLOCKS=$(cat $FILE_BLOCKS)
+        fi
+
+        case $COUNTER_BLOCKS in
+          1) SEND_ALERT_FLAG_BLOCKS=true ;;
+          5) SEND_ALERT_FLAG_BLOCKS=true ;;
+          15) SEND_ALERT_FLAG_BLOCKS=true ;;
+          30) SEND_ALERT_FLAG_BLOCKS=true ;;
+          60) SEND_ALERT_FLAG_BLOCKS=true ;;
+          120) SEND_ALERT_FLAG_BLOCKS=true ;;
+          360) SEND_ALERT_FLAG_BLOCKS=true ;;
+          720) SEND_ALERT_FLAG_BLOCKS=true ;;
+          1440) SEND_ALERT_FLAG_BLOCKS=true ;;
+          *)  SEND_ALERT_FLAG_BLOCKS=false ;;
+        esac
+}
+
 
 #Telegram API to send notification for Latency.
 function telegram_send
@@ -203,6 +231,15 @@ function telegram_send_hdd
         fi
 }
 
+#Telegram API to send notificaiton for BLOCKS.
+function telegram_send_blocks
+{
+        if [ "$SEND_ALERT_FLAG_BLOCKS" = true ] ; then
+                echo " >>>>: sending $MESSAGE"
+                curl --silent --max-time 13 --retry 3 --retry-delay 3 --retry-max-time 13 -X POST $TELEGRAM_URL -d chat_id=$CHAT_ID -d text="$MESSAGE"
+        fi
+}
+
 # Send Telegram test message
 if [ "$1" == "test" ] ; then
         SEND_ALERT_FLAG_CPU=false
@@ -215,7 +252,7 @@ fi
 # NODE ALIVE  Message  sent every hour
 if [[ $ALIVE == "00" ]]
 then
-MESSAGE="$(date) - [SYSTEM] [OK] UNS  node  $HOSTNAME WORKING !!!.."
+MESSAGE="$(date) - [SYSTEM] [OK] UNS  node  $HOSTNAME ALIVE !!!.."
         echo " >>>> : $MESSAGE"
         telegram_send
         exit 0
@@ -273,6 +310,33 @@ else
         telegram_send
 
 fi
+
+        BLOCK_STATUS_UNS=$(curl -sS https://api.uns.network/api/blockchain | jq .'[].block.height')
+         BLOCK_STATUS_NODE=$(curl -sS https://api.uns.network/api/peers/$UNS_NODE_IP |  jq  '.data.height')
+	 BLOCKS_BEHIND="$(($BLOCK_STATUS_UNS - $BLOCK_STATUS_NODE))"
+
+          if [[ "$BLOCKS_BEHIND" -lt $MAX_BLOCKS_BEHIND ]]; then
+                MESSAGE="$(date) - [INFO] $HOSTNAME Block Size within Acceptable Limit! - Block Height at $HOSTNAME only $BLOCKS_BEHIND Blocks behind uns.network"
+                echo " >>>> : Block Height at uns.network=$BLOCK_STATUS_UNS"
+                echo " >>>> : Block Height at $HOSTNAME=$BLOCK_STATUS_NODE"
+                echo " >>>> : Blocks BEHIND=$BLOCKS_BEHIND"
+                echo " >>>> : $MESSAGE"
+
+                if [ -f "$FILE_BLOCKS" ]; then
+                    echo "$FILE_BLOCKS exists."
+                    MESSAGE="$(date) - [INFO] [ALERT RESOLVED]  $HOSTNAME Blocks are  behind within acceptable limits ($BLOCKS_BEHIND Blocks) -  Limit is $MAX_BLOCKS_BEHIND Blocks "
+                    rm $FILE_BLOCKS
+                    SEND_ALERT_FLAG_BLOCKS=true
+                    telegram_send_blocks
+                fi
+            else
+                check_alert_count_blocks
+                MESSAGE="$(date) - [CRITICAL] [ALERT BLOCKS] $HOSTNAME  Blocks are $BLOCKS_BEHIND blocks BEHIND from UNS.NETWORK!!! #count:$COUNTER_BLOCKS -  Limit is $MAX_BLOCKS_BEHIND blocks for $HOSTNAME"
+                echo " >>>> : $MESSAGE"
+                telegram_send_blocks
+            fi
+
+
 	SOFTWARE_VERSION=$(uns version |cut -d'/' -f3 |cut -d' ' -f1)
 	 GITHUB_VERSION=$(curl -s https://github.com/unik-name/uns-cli/tags |grep /unik-name/uns-cli/releases/tag/ | head -n 1| cut -d'/' -f6 |cut -d'"' -f1)
          if [[ "$SOFTWARE_VERSION" == "$GITHUB_VERSION" ]]; then
