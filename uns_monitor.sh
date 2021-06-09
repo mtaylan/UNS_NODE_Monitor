@@ -353,7 +353,7 @@ fi
                 fi
             else
                 check_alert_count_sw
-                MESSAGE="$(date) - [CRITICAL] [ALERT SOFTWARE VERSION] UNS SOFTWARE is OUTDATED! #count:$COUNTER_SW - INSTALLED VERSION=$SOFTWARE_VERSION  GITHUB VERSION=$GITHUB_VERSION hostname=$HOSTNAME"                
+                MESSAGE="$(date) - [CRITICAL] [ALERT SOFTWARE VERSION] uns-cli SOFTWARE is OUTDATED! #count:$COUNTER_SW - INSTALLED VERSION=$SOFTWARE_VERSION  GITHUB VERSION=$GITHUB_VERSION hostname=$HOSTNAME"                
                 echo " >>>> : $MESSAGE"
                 telegram_send_sw
             fi
